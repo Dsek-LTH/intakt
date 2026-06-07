@@ -1,13 +1,17 @@
 package zettle
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
+
+var authHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 const (
 	zettleTokenURL = "https://oauth.zettle.com/token"
@@ -34,25 +38,19 @@ type bearerAuthTransport struct {
 
 func (t bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-
 	cloned.Header.Set("Authorization", "Bearer "+t.token)
 	cloned.Header.Set("Accept", "application/json")
 	cloned.Header.Set("X-iZettle-Application-Id", t.clientId)
-
 	return t.base.RoundTrip(cloned)
 }
 
-func fetchAccessToken(clientId, assertion string) (string, error) {
+func fetchAccessToken(ctx context.Context, clientId, assertion string) (string, error) {
 	form := url.Values{}
 	form.Set("grant_type", zettleAssertionGrantType)
 	form.Set("client_id", clientId)
 	form.Set("assertion", assertion)
 
-	req, err := http.NewRequest(
-		http.MethodPost,
-		zettleTokenURL,
-		strings.NewReader(form.Encode()),
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, zettleTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +59,7 @@ func fetchAccessToken(clientId, assertion string) (string, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-iZettle-Application-Id", clientId)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -81,19 +79,18 @@ func fetchAccessToken(clientId, assertion string) (string, error) {
 
 // NewClientFromEnv reads ZETTLE_CLIENT_ID and ZETTLE_API_KEY from the
 // environment and returns an authenticated Client.
-func NewClientFromEnv() (*Client, error) {
+func NewClientFromEnv(ctx context.Context) (*Client, error) {
 	clientId := os.Getenv("ZETTLE_CLIENT_ID")
 	assertion := os.Getenv("ZETTLE_API_KEY")
 
 	if clientId == "" {
 		return nil, errors.New("missing env var ZETTLE_CLIENT_ID")
 	}
-
 	if assertion == "" {
 		return nil, errors.New("missing env var ZETTLE_API_KEY")
 	}
 
-	accessToken, err := fetchAccessToken(clientId, assertion)
+	accessToken, err := fetchAccessToken(ctx, clientId, assertion)
 	if err != nil {
 		return nil, err
 	}

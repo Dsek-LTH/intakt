@@ -1,6 +1,7 @@
 package zettle
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 
 const zettlePurchaseURL = "https://purchase.izettle.com/purchases/v2"
 
-func (c *Client) getPurchasePage(startDate, endDate, lastPurchaseHash string) (purchasePage, error) {
+func (c *Client) getPurchasePage(ctx context.Context, startDate, endDate, lastPurchaseHash string) (purchasePage, error) {
 	u, err := url.Parse(zettlePurchaseURL)
 	if err != nil {
 		return purchasePage{}, fmt.Errorf("parsing purchase URL: %w", err)
@@ -20,14 +21,12 @@ func (c *Client) getPurchasePage(startDate, endDate, lastPurchaseHash string) (p
 	query.Set("descending", "true")
 	query.Set("startDate", startDate)
 	query.Set("endDate", endDate)
-
 	if lastPurchaseHash != "" {
 		query.Set("lastPurchaseHash", lastPurchaseHash)
 	}
-
 	u.RawQuery = query.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return purchasePage{}, fmt.Errorf("building purchase request: %w", err)
 	}
@@ -52,12 +51,12 @@ func (c *Client) getPurchasePage(startDate, endDate, lastPurchaseHash string) (p
 
 // GetPurchases retrieves all purchases in the given date range,
 // following pagination automatically.
-func (c *Client) GetPurchases(startDate, endDate string) ([]Purchase, error) {
+func (c *Client) GetPurchases(ctx context.Context, startDate, endDate string) ([]Purchase, error) {
 	var all []Purchase
 	lastHash := ""
 
 	for {
-		page, err := c.getPurchasePage(startDate, endDate, lastHash)
+		page, err := c.getPurchasePage(ctx, startDate, endDate, lastHash)
 		if err != nil {
 			return nil, err
 		}

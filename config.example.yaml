@@ -1,0 +1,49 @@
+out_path:
+  reports: output/reports
+  sie: output/SIE/
+  json: output/json
+
+attestation:
+  name: Your Name
+  stil_id: abc123
+
+# Human-readable names for account numbers, used in PDFs and SIE4 exports.
+account_descriptions:
+  "3010": Försäljning, mat
+  "3011": Försäljning, alkohol
+
+# Maps product name prefixes to committees and their booking account.
+# Products named "SK - Coffee" are routed to the "sk" committee.
+prefix_mappings:
+  sk:
+    name: sk
+    account: 3010
+
+committees:
+  sk:
+    proper_name: Studentkåren
+    description: SK
+    default_cost_center: SKT02
+
+# Swish payments without a product name in the message are matched by amount (in öre).
+# The value is a product message string run through the normal prefix pipeline,
+# so "c-Cola" routes to the "c" committee just like a labelled payment would.
+swish_amount_fallbacks:
+  1300: "c-Cola"
+  2200: "c-Monster"
+
+sie4:
+  enabled: false
+  organization_id: ""
+  company_name: ""
+  fiscal_year_start: "2025-01-01"
+  fiscal_year_end: "2025-12-31"
+  clearing_account: "1930"
+  clearing_account_name: Företagskonto
+  swish_clearing_account: "1931"
+  swish_clearing_account_name: Swishkonto
+  program_name: intakt
+  program_version: "1.0"
+  voucher_series: A
+  voucher_number_start: 1
+  voucher_text: Zettle

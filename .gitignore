@@ -1,2 +1,7 @@
 output/*
 .env
+.fortnox_token.json
+config.yaml
+pending.yaml
+intakt
+*.csv
