@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -9,16 +9,37 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"runtime"
 	"time"
 )
 
-func defaultTokenPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ".fortnox_token.json"
+// openBrowser tries to open url in the user's default browser. It returns an
+// error if the platform is unsupported or the command fails to start; callers
+// should fall back to printing the URL.
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = "open"
+	case "windows":
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler"}
+	default: // linux, bsd, etc.
+		cmd = "xdg-open"
 	}
-	return filepath.Join(dir, "intakt", "fortnox_token.json")
+
+	args = append(args, url)
+	launcher := exec.Command(cmd, args...)
+	if err := launcher.Start(); err != nil {
+		return err
+	}
+	// The launcher exits as soon as it has handed the URL to the browser; reap
+	// it so it doesn't linger as a zombie while we wait for the callback.
+	go func() { _ = launcher.Wait() }()
+	return nil
 }
 
 func oauthConfigFromEnv() (*fortnox.OAuthConfig, error) {
@@ -61,7 +82,12 @@ func doLogin(ctx context.Context, tokenFile string) error {
 	}
 	state := hex.EncodeToString(b)
 
-	fmt.Printf("Open this URL in your browser to authenticate with Fortnox:\n\n  %s\n\nWaiting for callback on port %d...\n", cfg.AuthURL(state), port)
+	authURL := cfg.AuthURL(state)
+	if err := openBrowser(authURL); err != nil {
+		fmt.Printf("\nOpen this URL in your browser to authenticate with Fortnox:\n\n  %s\n\n", authURL)
+	} else {
+		fmt.Printf("\nOpening your browser to authenticate with Fortnox. If it doesn't open, visit:\n\n  %s\n\n", authURL)
+	}
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
@@ -100,28 +126,45 @@ func doLogin(ctx context.Context, tokenFile string) error {
 	go srv.Serve(ln)
 	defer srv.Shutdown(ctx)
 
+	box := startBox("Fortnox login")
+
 	var code string
-	select {
-	case code = <-codeCh:
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("login cancelled")
-	}
+	err = box.run(fmt.Sprintf("Waiting for callback on port %d", port), true, func() (string, error) {
+		select {
+		case code = <-codeCh:
+			return "", nil
+		case e := <-errCh:
+			return "", e
+		case <-ctx.Done():
+			return "", fmt.Errorf("login cancelled")
+		}
+	})
 
-	tok, err := cfg.ExchangeCode(ctx, code)
+	var tok *fortnox.OAuthTokenResponse
+	if err == nil {
+		err = box.run("Exchanging authorization code", false, func() (string, error) {
+			var e error
+			tok, e = cfg.ExchangeCode(ctx, code)
+			if e != nil {
+				return "", fmt.Errorf("exchanging authorization code: %w", e)
+			}
+			return "", nil
+		})
+	}
+	if err == nil {
+		err = box.run("Saving token", false, func() (string, error) {
+			return "", fortnox.SaveToken(tokenFile, &fortnox.StoredToken{
+				AccessToken:  tok.AccessToken,
+				RefreshToken: tok.RefreshToken,
+				ExpiresAt:    time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second),
+			})
+		})
+	}
+	box.finish()
 	if err != nil {
-		return fmt.Errorf("exchanging authorization code: %w", err)
+		return err
 	}
 
-	if err := fortnox.SaveToken(tokenFile, &fortnox.StoredToken{
-		AccessToken:  tok.AccessToken,
-		RefreshToken: tok.RefreshToken,
-		ExpiresAt:    time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second),
-	}); err != nil {
-		return fmt.Errorf("saving token: %w", err)
-	}
-
-	fmt.Printf("Token saved to %s\n", tokenFile)
+	fmt.Printf("\nToken saved to %s\n\n", tokenFile)
 	return nil
 }

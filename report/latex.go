@@ -91,7 +91,7 @@ func compileTeX(assetsDir, outputDir string, d texData) error {
 }
 
 func runPdflatex(assetsDir, outputBase, outputDir string) error {
-	cmd := exec.Command("pdflatex", outputBase+".tex")
+	cmd := exec.Command("pdflatex", "-interaction=nonstopmode", "-halt-on-error", outputBase+".tex")
 	cmd.Dir = assetsDir
 
 	out, err := cmd.CombinedOutput()

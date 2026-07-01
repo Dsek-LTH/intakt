@@ -14,6 +14,15 @@ type StoredToken struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
+// DefaultTokenPath returns the default on-disk location of the stored token.
+func DefaultTokenPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ".fortnox_token.json"
+	}
+	return filepath.Join(dir, "intakt", "fortnox_token.json")
+}
+
 func LoadToken(path string) (*StoredToken, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

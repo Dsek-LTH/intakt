@@ -97,6 +97,7 @@ func NewClientFromEnv(ctx context.Context) (*Client, error) {
 
 	return &Client{
 		http: &http.Client{
+			Timeout: 30 * time.Second,
 			Transport: bearerAuthTransport{
 				base:     http.DefaultTransport,
 				token:    accessToken,

@@ -1,49 +1,53 @@
+# Copy this file to config.yaml and edit it for your organisation.
+# config.yaml is gitignored.
+
 out_path:
-  reports: output/reports
-  sie: output/SIE/
-  json: output/json
+  reports: output/reports    # generated voucher PDFs
+  vouchers: output/vouchers  # pending-voucher JSON, consumed by `intakt upload`
 
+# Who signs the vouchers; printed on every PDF.
 attestation:
-  name: Your Name
-  stil_id: abc123
+  name: Förnamn Efternamn
+  stil_id: fö1234ef-s
 
-# Human-readable names for account numbers, used in PDFs and SIE4 exports.
+# Human-readable names for account numbers, shown on the PDFs.
 account_descriptions:
-  "3010": Försäljning, mat
-  "3011": Försäljning, alkohol
+  "3000": Försäljning inom Sverige
+  "3010": Livsmedelsförsäljning
+  "6540": IT-tjänster
 
-# Maps product name prefixes to committees and their booking account.
-# Products named "SK - Coffee" are routed to the "sk" committee.
+# Maps product-name prefixes to a committee and its booking account.
+# A product named "SK - Coffee" routes to the "sk" mapping below.
+# Products that match no prefix fall back to the "sk" mapping.
 prefix_mappings:
+  c:
+    name: cafe
+    account: 3000
   sk:
-    name: sk
-    account: 3010
+    name: skatt
+    account: 3000
+  z: # Zettle fees routes to this
+    name: skatt
+    account: 6540
 
+# Per-committee display info. `name` under prefix_mappings must reference a key here.
 committees:
-  sk:
-    proper_name: Studentkåren
-    description: SK
+  cafe:
+    proper_name: Cafémästeriet
+    description: Cafémästeriets verksamhet
+    default_cost_center: CAFE02
+  skatt:
+    proper_name: Skattmästeriet
+    description: Bank-, Zettle- eller Swish-kostnader / okända utskott
     default_cost_center: SKT02
 
-# Swish payments without a product name in the message are matched by amount (in öre).
-# The value is a product message string run through the normal prefix pipeline,
-# so "c-Cola" routes to the "c" committee just like a labelled payment would.
+# Swish payments whose message has no product label are matched by amount (in öre).
+# The value is run through the normal prefix pipeline, so "c-Cola" routes to "c".
 swish_amount_fallbacks:
   1300: "c-Cola"
   2200: "c-Monster"
 
-sie4:
-  enabled: false
-  organization_id: ""
-  company_name: ""
-  fiscal_year_start: "2025-01-01"
-  fiscal_year_end: "2025-12-31"
-  clearing_account: "1930"
-  clearing_account_name: Företagskonto
-  swish_clearing_account: "1931"
-  swish_clearing_account_name: Swishkonto
-  program_name: intakt
-  program_version: "1.0"
-  voucher_series: A
-  voucher_number_start: 1
-  voucher_text: Zettle
+fortnox:
+  zettle_account: "1919"   # clearing account for Zettle
+  swish_account: "1933"    # clearing account for Swish
+  voucher_series: IR       # Fortnox voucher series to post into

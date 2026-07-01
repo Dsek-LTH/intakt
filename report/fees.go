@@ -1,8 +1,6 @@
 package report
 
 import (
-	"errors"
-	"fmt"
 	"intakt/config"
 	"intakt/zettle"
 	"path/filepath"
@@ -110,13 +108,10 @@ func feeToTexData(cfg *config.Config, key string, r *FeeReport) texData {
 }
 
 // CompileFees renders every fee report to a PDF via pdflatex.
-// All reports are attempted; any errors are collected and returned together.
-func CompileFees(cfg *config.Config, assetsDir string, reports map[string]*FeeReport) error {
-	var errs []error
-	for key, r := range reports {
-		if err := compileTeX(assetsDir, filepath.Join(cfg.OutPath.Reports, "fees"), feeToTexData(cfg, key, r)); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", key, err))
-		}
-	}
-	return errors.Join(errs...)
+// onProgress is called after each PDF is compiled; pass nil to skip.
+func CompileFees(cfg *config.Config, assetsDir string, reports map[string]*FeeReport, onProgress func()) error {
+	outDir := filepath.Join(cfg.OutPath.Reports, "fees")
+	return compileAll(reports, onProgress, func(key string, r *FeeReport) error {
+		return compileTeX(assetsDir, outDir, feeToTexData(cfg, key, r))
+	})
 }

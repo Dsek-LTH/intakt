@@ -3,17 +3,17 @@ package zettle
 import "encoding/json"
 
 type PurchaseDiscount struct {
-	Name       string `json:"name"`
-	Percentage *int   `json:"percentage,omitempty"`
-	Amount     *int   `json:"amount,omitempty"`
-	Quantity   int    `json:"quantity"`
-	Value      int    `json:"value"`
+	Name       string   `json:"name"`
+	Percentage *float64 `json:"percentage,omitempty"`
+	Amount     *int     `json:"amount,omitempty"`
+	Quantity   int      `json:"quantity"`
+	Value      int      `json:"value"`
 }
 
 type ProductDiscount struct {
-	Percentage *int `json:"percentage,omitempty"`
-	Amount     *int `json:"amount,omitempty"`
-	Quantity   int  `json:"quantity"`
+	Percentage *float64 `json:"percentage,omitempty"`
+	Amount     *int     `json:"amount,omitempty"`
+	Quantity   int      `json:"quantity"`
 }
 
 type Payment struct {

@@ -1,10 +1,54 @@
 package report
 
 import (
+	"fmt"
 	"intakt/config"
 	"regexp"
+	"runtime"
 	"strings"
 )
+
+// compileAll runs compile(key, r) for every entry in reports using a fixed
+// worker pool. Each worker pulls jobs from a queue and processes them one at a
+// time, so completions are naturally staggered and onProgress fires individually
+// rather than in bursts.
+func compileAll[T any](reports map[string]T, onProgress func(), compile func(key string, r T) error) error {
+	type job struct {
+		key string
+		r   T
+	}
+	type result struct {
+		key string
+		err error
+	}
+
+	jobs := make(chan job, len(reports))
+	for key, r := range reports {
+		jobs <- job{key, r}
+	}
+	close(jobs)
+
+	results := make(chan result, len(reports))
+	for range min(runtime.NumCPU(), len(reports)) {
+		go func() {
+			for j := range jobs {
+				err := compile(j.key, j.r)
+				if err == nil && onProgress != nil {
+					onProgress()
+				}
+				results <- result{j.key, err}
+			}
+		}()
+	}
+
+	var firstErr error
+	for range reports {
+		if res := <-results; res.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", res.key, res.err)
+		}
+	}
+	return firstErr
+}
 
 func accountDescription(cfg *config.Config, account string) string {
 	if description, ok := cfg.AccountDescriptions[account]; ok {
@@ -13,7 +57,6 @@ func accountDescription(cfg *config.Config, account string) string {
 	return "???"
 }
 
-// Builds this each time it is called but whatever
 func buildRegexFromValidPrefixes(cfg *config.Config) string {
 	prefixes := make([]string, len(cfg.PrefixMappings))
 	i := 0

@@ -8,7 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"strings"
+	"os"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -26,37 +26,32 @@ type Client struct {
 	limiter       *rate.Limiter
 }
 
-type Option func(*Client)
-
-func WithBaseURL(baseURL string) Option {
-	return func(c *Client) {
-		if strings.TrimSpace(baseURL) != "" {
-			c.baseURL = strings.TrimRight(baseURL, "/")
-		}
-	}
-}
-
-func WithHTTPClient(httpClient *http.Client) Option {
-	return func(c *Client) {
-		if httpClient != nil {
-			c.httpClient = httpClient
-		}
-	}
-}
-
-func NewClient(tokenProvider TokenProvider, opts ...Option) *Client {
-	c := &Client{
+func NewClient(tokenProvider TokenProvider) *Client {
+	return &Client{
 		baseURL:       DefaultBaseURL,
 		httpClient:    http.DefaultClient,
 		tokenProvider: tokenProvider,
 		limiter:       fortnoxRate,
 	}
+}
 
-	for _, opt := range opts {
-		opt(c)
+// NewClientFromEnv builds a Client authenticated with a RefreshingTokenProvider,
+// reading FORTNOX_CLIENT_ID and FORTNOX_CLIENT_SECRET from the environment and
+// the stored token from tokenFile.
+func NewClientFromEnv(tokenFile string) (*Client, error) {
+	clientID := os.Getenv("FORTNOX_CLIENT_ID")
+	clientSecret := os.Getenv("FORTNOX_CLIENT_SECRET")
+	if clientID == "" {
+		return nil, fmt.Errorf("missing env var FORTNOX_CLIENT_ID")
+	}
+	if clientSecret == "" {
+		return nil, fmt.Errorf("missing env var FORTNOX_CLIENT_SECRET")
 	}
 
-	return c
+	return NewClient(&RefreshingTokenProvider{
+		Config:    &OAuthConfig{ClientID: clientID, ClientSecret: clientSecret},
+		TokenFile: tokenFile,
+	}), nil
 }
 
 func (c *Client) newRequest(ctx context.Context, method string, path string, body io.Reader, contentType string) (*http.Request, error) {
@@ -133,36 +128,6 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	}
 	defer resp.Body.Close()
 	return decodeResponse(resp, out)
-}
-
-func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, path, nil, "")
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("fortnox API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	return body, nil
-}
-
-func (c *Client) deleteReq(ctx context.Context, path string) error {
-	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, "")
-	if err != nil {
-		return err
-	}
-	resp, err := c.do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return decodeResponse(resp, nil)
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, in any, out any) error {

@@ -42,7 +42,7 @@ func ParseSwish(cfg *config.Config, r io.Reader, start, end time.Time) (map[stri
 			continue
 		}
 
-		dateStr := strings.TrimSpace(record[4]) // Transdag
+		dateStr := strings.TrimSpace(record[4]) // Bokfdag
 		t, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			continue
@@ -54,7 +54,7 @@ func ParseSwish(cfg *config.Config, r io.Reader, start, end time.Time) (map[stri
 		message := strings.TrimSpace(record[10]) // Meddelande
 		amountStr := strings.TrimSpace(record[12])
 		amount, err := parseSwishAmount(amountStr)
-		if err != nil || amount <= 0 {
+		if err != nil || amount == 0 {
 			continue
 		}
 

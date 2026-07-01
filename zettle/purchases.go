@@ -9,6 +9,7 @@ import (
 )
 
 const zettlePurchaseURL = "https://purchase.izettle.com/purchases/v2"
+const purchaseLimit = 1000
 
 func (c *Client) getPurchasePage(ctx context.Context, startDate, endDate, lastPurchaseHash string) (purchasePage, error) {
 	u, err := url.Parse(zettlePurchaseURL)
@@ -17,7 +18,7 @@ func (c *Client) getPurchasePage(ctx context.Context, startDate, endDate, lastPu
 	}
 
 	query := u.Query()
-	query.Set("limit", "50")
+	query.Set("limit", fmt.Sprint(purchaseLimit))
 	query.Set("descending", "true")
 	query.Set("startDate", startDate)
 	query.Set("endDate", endDate)

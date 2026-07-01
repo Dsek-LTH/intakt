@@ -24,32 +24,14 @@ type CommitteeInfo struct {
 }
 
 type OutPath struct {
-	Reports string `yaml:"reports"`
-	SIE     string `yaml:"sie"`
-	JSON    string `yaml:"json"`
+	Reports  string `yaml:"reports"`
+	Vouchers string `yaml:"vouchers"`
 }
 
-type SIE4Config struct {
-	Enabled bool `yaml:"enabled"`
-
-	OrganizationID string `yaml:"organization_id"`
-	CompanyName    string `yaml:"company_name"`
-
-	FiscalYearStart string `yaml:"fiscal_year_start"` // YYYY-MM-DD
-	FiscalYearEnd   string `yaml:"fiscal_year_end"`   // YYYY-MM-DD
-
-	ZettleAccount     string `yaml:"zettle_account"`
-	ZettleAccountName string `yaml:"zettle_account_name"`
-
-	SwishAccount     string `yaml:"swish_account"`
-	SwishAccountName string `yaml:"swish_account_name"`
-
-	ProgramName    string `yaml:"program_name"`
-	ProgramVersion string `yaml:"program_version"`
-
-	VoucherSeries      string `yaml:"voucher_series"`
-	VoucherNumberStart int    `yaml:"voucher_number_start"`
-	VoucherText        string `yaml:"voucher_text"`
+type FortnoxConfig struct {
+	ZettleAccount string `yaml:"zettle_account"`
+	SwishAccount  string `yaml:"swish_account"`
+	VoucherSeries string `yaml:"voucher_series"`
 }
 
 type Config struct {
@@ -58,7 +40,7 @@ type Config struct {
 	AccountDescriptions  map[string]string        `yaml:"account_descriptions"`
 	PrefixMappings       map[string]PrefixAccount `yaml:"prefix_mappings"`
 	Committees           map[string]CommitteeInfo `yaml:"committees"`
-	SIE4                 SIE4Config               `yaml:"sie4"`
+	Fortnox              FortnoxConfig            `yaml:"fortnox"`
 	SwishAmountFallbacks map[int]string           `yaml:"swish_amount_fallbacks"`
 }
 
@@ -95,8 +77,8 @@ func (c *Config) validate() error {
 		return fmt.Errorf("out_path.reports is required")
 	}
 
-	if c.OutPath.JSON == "" {
-		return fmt.Errorf("out_path.json is required")
+	if c.OutPath.Vouchers == "" {
+		return fmt.Errorf("out_path.vouchers is required")
 	}
 
 	if c.Attestation.Name == "" {
@@ -121,44 +103,16 @@ func (c *Config) validate() error {
 		}
 	}
 
-	if err := c.validateSIE4(); err != nil {
-		return err
+	if c.Fortnox.ZettleAccount == "" {
+		return fmt.Errorf("fortnox.zettle_account is required")
 	}
 
-	return nil
-}
-
-func (c *Config) validateSIE4() error {
-	if !c.SIE4.Enabled {
-		return nil
+	if c.Fortnox.SwishAccount == "" {
+		return fmt.Errorf("fortnox.swish_account is required")
 	}
 
-	if c.SIE4.OrganizationID == "" {
-		return fmt.Errorf("sie4.organization_id is required when sie4.enabled is true")
-	}
-
-	if c.SIE4.CompanyName == "" {
-		return fmt.Errorf("sie4.company_name is required when sie4.enabled is true")
-	}
-
-	if c.SIE4.FiscalYearStart == "" {
-		return fmt.Errorf("sie4.fiscal_year_start is required when sie4.enabled is true")
-	}
-
-	if c.SIE4.FiscalYearEnd == "" {
-		return fmt.Errorf("sie4.fiscal_year_end is required when sie4.enabled is true")
-	}
-
-	if c.SIE4.ZettleAccount == "" {
-		return fmt.Errorf("sie4.zettle_account is required when sie4.enabled is true")
-	}
-
-	if c.SIE4.SwishAccount == "" {
-		return fmt.Errorf("sie4.zettle_account_name is required when sie4.enabled is true")
-	}
-
-	if c.OutPath.SIE == "" {
-		return fmt.Errorf("out_path.sie is required when sie4.enabled is true")
+	if c.Fortnox.VoucherSeries == "" {
+		return fmt.Errorf("fortnox.voucher_series is required")
 	}
 
 	return nil

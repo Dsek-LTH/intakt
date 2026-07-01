@@ -54,35 +54,6 @@ type VoucherFileConnectionResult struct {
 	VoucherNumber int    `json:"VoucherNumber"`
 }
 
-type FinancialYear struct {
-	ID        int    `json:"Id"`
-	FromDate  string `json:"FromDate"`
-	ToDate    string `json:"ToDate"`
-}
-
-type FinancialYearListResponse struct {
-	FinancialYears []FinancialYear `json:"FinancialYears"`
-}
-
-type VoucherSummary struct {
-	VoucherSeries   string `json:"VoucherSeries"`
-	VoucherNumber   int    `json:"VoucherNumber"`
-	Year            int    `json:"Year"`
-	Description     string `json:"Description"`
-	TransactionDate string `json:"TransactionDate"`
-}
-
-type MetaInformation struct {
-	TotalResources int `json:"@TotalResources"`
-	TotalPages     int `json:"@TotalPages"`
-	CurrentPage    int `json:"@CurrentPage"`
-}
-
-type VoucherListResponse struct {
-	Vouchers        []VoucherSummary `json:"Vouchers"`
-	MetaInformation MetaInformation  `json:"MetaInformation"`
-}
-
 type VoucherFileConnectionCreateResponse struct {
 	VoucherFileConnection VoucherFileConnectionResult `json:"VoucherFileConnection"`
 }

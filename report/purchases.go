@@ -4,26 +4,17 @@ import (
 	"intakt/config"
 	"intakt/zettle"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
-func parseZettleDate(timestamp string) string {
-	layouts := []string{
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05.000-0700",
-		"2006-01-02T15:04:05-0700",
-		"2006-01-02",
+func parseZettleDate(ts string) string {
+	t, ok := zettle.ParseDate(ts)
+	if !ok {
+		return ts
 	}
-	for _, layout := range layouts {
-		t, err := time.Parse(layout, timestamp)
-		if err == nil {
-			return t.Format("2006-01-02")
-		}
-	}
-	return timestamp
+	return t.Format("2006-01-02")
 }
 
 func parseQuantity(quantity string) int {
@@ -65,7 +56,7 @@ func purchaseDiscountValue(discount zettle.PurchaseDiscount, purchasePositiveTot
 		return *discount.Amount
 	}
 	if discount.Percentage != nil {
-		return roundDiv(purchasePositiveTotal*(*discount.Percentage), 100)
+		return roundDiv(int(float64(purchasePositiveTotal)**discount.Percentage), 100)
 	}
 	return 0
 }
@@ -108,8 +99,8 @@ func allocateByLargestRemainder(amount int, lines []saleLine, positiveTotal int)
 		remainders = append(remainders, struct{ index, remainder int }{i, remainder})
 	}
 
-	sort.SliceStable(remainders, func(i, j int) bool {
-		return remainders[i].remainder > remainders[j].remainder
+	slices.SortStableFunc(remainders, func(a, b struct{ index, remainder int }) int {
+		return b.remainder - a.remainder
 	})
 
 	remaining := amount - allocatedTotal
