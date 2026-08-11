@@ -43,7 +43,11 @@ func ParseSwish(cfg *config.Config, r io.Reader, start, end time.Time) (map[stri
 		}
 
 		dateStr := strings.TrimSpace(record[4]) // Bokfdag
-		t, err := time.Parse("2006-01-02", dateStr)
+		// Read in Location, because that is where the range boundaries come
+		// from too (see ParseDay). Parsed as UTC while the caller's `end` was
+		// Swedish midnight, the two sat two hours apart and the last day of
+		// every range was silently dropped — a term's final Friday, every time.
+		t, err := time.ParseInLocation("2006-01-02", dateStr, Location)
 		if err != nil {
 			continue
 		}

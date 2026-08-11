@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"intakt/config"
 	"intakt/fortnox"
+	"intakt/report"
 	"os"
 	"time"
 )
@@ -142,8 +143,12 @@ func fetchAndCompile(ctx context.Context, cfg *config.Config, sourceName, assets
 	return src.Compile(assetsDir)
 }
 
+// parseDate reads a date a person typed. Through report.ParseDay, so a range
+// boundary means Swedish midnight — the same day the CSV rows and the Zettle
+// timestamps are grouped into. Two definitions of "a day" in one program is how
+// the last day of a Swish range went missing.
 func parseDate(s string) (time.Time, error) {
-	t, err := time.Parse("2006-01-02", s)
+	t, err := report.ParseDay(s)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid date %q: expected YYYY-MM-DD", s)
 	}

@@ -4,3 +4,17 @@ output/*
 config.yaml
 intakt
 *.csv
+
+# A leftover of the manifest the old CLI hand-edited. Nothing writes it any
+# more — upstream keeps pending vouchers under out_path.vouchers — but a copy
+# is still lying around in working trees, and it is nobody's source.
+pending.yaml
+
+# Test fixtures are the exception to the rules above, and have to be committed
+# or the golden test only runs on the machine that produced it. Both are
+# derived from real data with everything identifying removed: the CSV keeps
+# only the columns the parser reads (dates, messages, amounts) and carries
+# placeholder sender numbers and names, and the config is the real routing
+# table with a placeholder attestation.
+!report/testdata/swish.csv
+!report/testdata/config.yaml

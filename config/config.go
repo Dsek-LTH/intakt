@@ -7,41 +7,55 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// The json tags beside the yaml ones are not decoration. Under the CLI this
+// struct is read from config.yaml; under the service it arrives in the request
+// body, because the caller holds the routing table in its database and there is
+// no file on this side to keep in step (server/api.go). Go would otherwise
+// match `prefix_mappings` against `PrefixMappings` and fail — an underscore is
+// not case — so the config would decode to an empty one and every product would
+// route to nothing.
+//
+// The two spellings are the same string throughout, which is what lets a
+// config.yaml and a request body be the same shape.
+
 type Attestation struct {
-	Name   string `yaml:"name"`
-	StilID string `yaml:"stil_id"`
+	Name   string `yaml:"name" json:"name"`
+	StilID string `yaml:"stil_id" json:"stil_id"`
 }
 
 type PrefixAccount struct {
-	Name    string `yaml:"name"`
-	Account int    `yaml:"account"`
+	Name    string `yaml:"name" json:"name"`
+	Account int    `yaml:"account" json:"account"`
 }
 
 type CommitteeInfo struct {
-	ProperName        string `yaml:"proper_name"`
-	Description       string `yaml:"description"`
-	DefaultCostCenter string `yaml:"default_cost_center"`
+	ProperName        string `yaml:"proper_name" json:"proper_name"`
+	Description       string `yaml:"description" json:"description"`
+	DefaultCostCenter string `yaml:"default_cost_center" json:"default_cost_center"`
 }
 
 type OutPath struct {
-	Reports  string `yaml:"reports"`
-	Vouchers string `yaml:"vouchers"`
+	Reports  string `yaml:"reports" json:"reports"`
+	Vouchers string `yaml:"vouchers" json:"vouchers"`
 }
 
 type FortnoxConfig struct {
-	ZettleAccount string `yaml:"zettle_account"`
-	SwishAccount  string `yaml:"swish_account"`
-	VoucherSeries string `yaml:"voucher_series"`
+	ZettleAccount string `yaml:"zettle_account" json:"zettle_account"`
+	SwishAccount  string `yaml:"swish_account" json:"swish_account"`
+	VoucherSeries string `yaml:"voucher_series" json:"voucher_series"`
 }
 
 type Config struct {
-	OutPath              OutPath                  `yaml:"out_path"`
-	Attestation          Attestation              `yaml:"attestation"`
-	AccountDescriptions  map[string]string        `yaml:"account_descriptions"`
-	PrefixMappings       map[string]PrefixAccount `yaml:"prefix_mappings"`
-	Committees           map[string]CommitteeInfo `yaml:"committees"`
-	Fortnox              FortnoxConfig            `yaml:"fortnox"`
-	SwishAmountFallbacks map[int]string           `yaml:"swish_amount_fallbacks"`
+	// Where the CLI writes what it compiles. The service writes nothing — it
+	// answers with bytes — so a request body leaves this empty.
+	OutPath             OutPath                  `yaml:"out_path" json:"out_path"`
+	Attestation         Attestation              `yaml:"attestation" json:"attestation"`
+	AccountDescriptions map[string]string        `yaml:"account_descriptions" json:"account_descriptions"`
+	PrefixMappings      map[string]PrefixAccount `yaml:"prefix_mappings" json:"prefix_mappings"`
+	Committees          map[string]CommitteeInfo `yaml:"committees" json:"committees"`
+	// Only the CLI uploads, so only the CLI needs a series to upload into.
+	Fortnox              FortnoxConfig  `yaml:"fortnox" json:"fortnox"`
+	SwishAmountFallbacks map[int]string `yaml:"swish_amount_fallbacks" json:"swish_amount_fallbacks"`
 }
 
 // FeePrefixAccount returns the prefix account used for Zettle fees.
@@ -72,15 +86,15 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (c *Config) validate() error {
-	if c.OutPath.Reports == "" {
-		return fmt.Errorf("out_path.reports is required")
-	}
-
-	if c.OutPath.Vouchers == "" {
-		return fmt.Errorf("out_path.vouchers is required")
-	}
-
+// Validate checks what any config must have, however it arrived: who attests,
+// something to route with, and somewhere for each route to land.
+//
+// Split out from validate() below because the service is handed a config in a
+// request body rather than reading config.yaml, and a body carries none of the
+// file-only settings — it writes nothing, so it has no out_path, and it never
+// uploads, so it has no series. Holding a request to those would refuse every
+// one of them.
+func (c *Config) Validate() error {
 	if c.Attestation.Name == "" {
 		return fmt.Errorf("attestation.name is required")
 	}
@@ -101,6 +115,24 @@ func (c *Config) validate() error {
 		if _, ok := c.Committees[pa.Name]; !ok {
 			return fmt.Errorf("prefix_mappings[%q]: committee %q is not defined in committees", prefix, pa.Name)
 		}
+	}
+
+	return nil
+}
+
+// validate is Validate plus what only a config.yaml has to answer for: where
+// the CLI writes what it compiles, and which series it uploads into.
+func (c *Config) validate() error {
+	if c.OutPath.Reports == "" {
+		return fmt.Errorf("out_path.reports is required")
+	}
+
+	if c.OutPath.Vouchers == "" {
+		return fmt.Errorf("out_path.vouchers is required")
+	}
+
+	if err := c.Validate(); err != nil {
+		return err
 	}
 
 	if c.Fortnox.ZettleAccount == "" {
