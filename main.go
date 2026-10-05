@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"intakt/internal/cli"
-	"log"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -51,7 +50,6 @@ Run 'intakt <command> -h' for command-specific flags.
 `
 
 func main() {
-	log.SetFlags(0)
 	_ = godotenv.Load()
 
 	if len(os.Args) < 2 {
@@ -79,7 +77,7 @@ func main() {
 	}
 
 	if err != nil {
-		log.Print(err)
+		cli.HandleError(err)
 		os.Exit(1)
 	}
 }

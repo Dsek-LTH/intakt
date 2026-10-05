@@ -2,6 +2,13 @@ package zettle
 
 import "encoding/json"
 
+// Transaction types returned by the Zettle finance API.
+const (
+	TxTypePayment    = "PAYMENT"
+	TxTypePaymentFee = "PAYMENT_FEE"
+	TxTypePayout     = "PAYOUT"
+)
+
 type PurchaseDiscount struct {
 	Name       string   `json:"name"`
 	Percentage *float64 `json:"percentage,omitempty"`

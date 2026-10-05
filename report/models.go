@@ -1,5 +1,19 @@
 package report
 
+// Subdirectories of out_path.reports that the compile functions render PDFs
+// into, one per source. The CLI derives each voucher's PDF path and display
+// label from these, so they are part of this package's contract.
+const (
+	SubdirPurchases      = "purchases"
+	SubdirFees           = "fees"
+	SubdirSwish          = "swish"
+	SubdirReconciliation = "reconciliation"
+)
+
+// FeeFilePrefix distinguishes fee voucher files (PDF and pending JSON) from
+// sales vouchers, whose keys are "<committee>-<date>" without a prefix.
+const FeeFilePrefix = "avgift-"
+
 type Entry struct {
 	Name              string
 	Variant           string

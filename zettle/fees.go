@@ -76,5 +76,5 @@ func (c *Client) getTransactionsByTypes(ctx context.Context, startDate, endDate 
 
 // GetAllTransactions retrieves PAYMENT, PAYMENT_FEE, and PAYOUT transactions for reconciliation.
 func (c *Client) GetAllTransactions(ctx context.Context, startDate, endDate string) ([]TransactionFee, error) {
-	return c.getTransactionsByTypes(ctx, startDate, endDate, []string{"PAYMENT", "PAYMENT_FEE", "PAYOUT"})
+	return c.getTransactionsByTypes(ctx, startDate, endDate, []string{TxTypePayment, TxTypePaymentFee, TxTypePayout})
 }

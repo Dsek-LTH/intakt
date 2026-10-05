@@ -111,6 +111,11 @@ func uploadOne(ctx context.Context, fn *fortnox.Client, vouchersDir string, e re
 	return nil
 }
 
+// uploadWorkers bounds concurrent voucher uploads: each voucher issues up to
+// 3 sequential Fortnox requests, keeping peak load well within the 300/min
+// rate limit.
+const uploadWorkers = 4
+
 // startUpload uploads non-skipped entries with a bounded worker pool, streaming
 // one result per entry onto the returned channel and closing it when done.
 func startUpload(ctx context.Context, fn *fortnox.Client, vouchersDir string, entries []reviewEntry) <-chan uploadResult {
@@ -120,11 +125,9 @@ func startUpload(ctx context.Context, fn *fortnox.Client, vouchersDir string, en
 	}
 	close(jobs)
 
-	// 4 workers: each voucher uses up to 3 sequential Fortnox requests,
-	// keeping peak load well within the 300/min rate limit.
 	results := make(chan uploadResult, len(entries))
 	var wg sync.WaitGroup
-	for range min(4, len(entries)) {
+	for range min(uploadWorkers, len(entries)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -150,10 +153,14 @@ func printUploadSummary(s uploadSummary) {
 	}
 	fmt.Printf("\n%d of %d voucher(s) uploaded.\n", s.uploaded, s.total)
 	if len(s.failures) > 0 {
-		fmt.Printf("%d failed (left on disk for retry):\n", len(s.failures))
-		for _, r := range s.failures {
-			fmt.Printf("  %s: %v\n", r.key, r.err)
+		lines := make([]errLine, len(s.failures))
+		for i, r := range s.failures {
+			lines[i] = errLine{label: r.key, detail: r.err.Error()}
 		}
+		title := fmt.Sprintf("%d failed — left on disk for retry", len(s.failures))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, renderErrorBox(title, lines))
+		return
 	}
 	fmt.Println()
 }

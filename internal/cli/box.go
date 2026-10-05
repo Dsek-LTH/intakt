@@ -27,6 +27,7 @@ type boxRow struct {
 	label    string
 	state    rowState
 	detail   string // extra info after the label (counts, progress, …)
+	errMsg   string // error text shown wrapped under the label when the row fails
 	showTime bool   // show elapsed time once done
 	start    time.Time
 	elapsed  time.Duration
@@ -61,9 +62,6 @@ func startBox(title string) *liveBox {
 		stop:  make(chan struct{}),
 		done:  make(chan struct{}),
 	}
-	// Leading blank line so the box doesn't sit flush against the shell prompt.
-	// It stays above the repainted region, which only covers the box itself.
-	fmt.Fprintln(os.Stderr)
 	go b.loop()
 	return b
 }
@@ -106,6 +104,7 @@ func (b *liveBox) finishRow(r *boxRow, detail string, err error) {
 	}
 	if err != nil {
 		r.state = rowFailed
+		r.errMsg = err.Error()
 	} else {
 		r.state = rowDone
 	}
@@ -161,14 +160,34 @@ func (b *liveBox) setRendered(r *boxRow, s string) {
 	b.mu.Unlock()
 }
 
+// hasFailure reports whether any row ended in failure, i.e. the box already
+// displayed an error to the user.
+func (b *liveBox) hasFailure() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, r := range b.rows {
+		if r.state == rowFailed {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *liveBox) draw() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.frame++
 
+	// Don't render an empty box: if a command fails before adding any step
+	// (e.g. a cache miss), the error is surfaced elsewhere instead.
+	if len(b.rows) == 0 {
+		return
+	}
+
 	lines := []string{""}
 	for _, r := range b.rows {
-		lines = append(lines, b.renderRow(r))
+		// A failed row may render its wrapped error across several lines.
+		lines = append(lines, strings.Split(b.renderRow(r), "\n")...)
 	}
 	lines = append(lines, "")
 
@@ -178,6 +197,12 @@ func (b *liveBox) draw() {
 	var out bytes.Buffer
 	if b.height > 0 {
 		fmt.Fprintf(&out, "\033[%dA", b.height) // move up to the box top
+	} else {
+		// First render: a leading blank line so the box doesn't sit flush
+		// against the shell prompt. It stays above the repainted region (which
+		// only covers the box), and is skipped entirely when the box draws
+		// nothing — e.g. a command that fails before adding any step.
+		out.WriteByte('\n')
 	}
 	out.WriteString("\033[J") // clear from cursor to end of screen
 	out.WriteString(s)
@@ -213,7 +238,16 @@ func (b *liveBox) renderRow(r *boxRow) string {
 		}
 		return line + styleDim.Render(tail)
 	case rowFailed:
-		return "  " + styleRed.Render("✗") + " " + r.label
+		head := "  " + styleRed.Render("✗") + " " + r.label
+		if r.errMsg == "" {
+			return head
+		}
+		// Wrap the error under the label, indented past the ✗ marker.
+		lines := []string{head}
+		for _, w := range wrapWords(r.errMsg, cardWidth-6) {
+			lines = append(lines, "    "+styleDim.Render(w))
+		}
+		return strings.Join(lines, "\n")
 	default:
 		icon := styleGreen.Render(spinnerFrames[b.frame%len(spinnerFrames)])
 		line := "  " + icon + " " + r.label
@@ -227,6 +261,12 @@ func (b *liveBox) renderRow(r *boxRow) string {
 // drawBox renders a bordered box with the title spliced into the top border.
 // contentLines are padded to a fixed width so the borders line up.
 func drawBox(title string, contentLines []string) string {
+	return drawBoxStyled(title, styleBold, contentLines)
+}
+
+// drawBoxStyled is drawBox with a caller-chosen style for the title, used to
+// render error boxes with a red title.
+func drawBoxStyled(title string, titleStyle lipgloss.Style, contentLines []string) string {
 	w := cardWidth
 	// Keep room for the "─ " prefix and " " suffix around the title.
 	title = ansi.Truncate(title, w-4, "…")
@@ -236,7 +276,7 @@ func drawBox(title string, contentLines []string) string {
 	}
 	var b strings.Builder
 	b.WriteString(styleDim.Render("╭─ "))
-	b.WriteString(styleBold.Render(title))
+	b.WriteString(titleStyle.Render(title))
 	b.WriteString(styleDim.Render(" " + strings.Repeat("─", dash) + "╮"))
 	b.WriteByte('\n')
 	for _, line := range contentLines {
@@ -256,6 +296,52 @@ func sanitizeBar(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", "")
 	return strings.TrimSpace(s)
+}
+
+// wrapWords word-wraps s to display width w, breaking on spaces and newlines and
+// hard-splitting any single word wider than w. It returns the wrapped lines.
+func wrapWords(s string, w int) []string {
+	if w < 1 {
+		w = 1
+	}
+	var lines []string
+	for _, para := range strings.Split(s, "\n") {
+		cur := ""
+		for _, word := range strings.Fields(para) {
+			// A word wider than the line is split across lines by rune.
+			for lipgloss.Width(word) > w {
+				if cur != "" {
+					lines = append(lines, cur)
+					cur = ""
+				}
+				head, rest := splitRunes(word, w)
+				lines = append(lines, head)
+				word = rest
+			}
+			switch {
+			case cur == "":
+				cur = word
+			case lipgloss.Width(cur)+1+lipgloss.Width(word) <= w:
+				cur += " " + word
+			default:
+				lines = append(lines, cur)
+				cur = word
+			}
+		}
+		if cur != "" {
+			lines = append(lines, cur)
+		}
+	}
+	return lines
+}
+
+// splitRunes splits s after n runes, returning the head and remainder.
+func splitRunes(s string, n int) (string, string) {
+	r := []rune(s)
+	if n >= len(r) {
+		return s, ""
+	}
+	return string(r[:n]), string(r[n:])
 }
 
 // padDisplay right-pads s with spaces to display width w (ignoring ANSI codes).

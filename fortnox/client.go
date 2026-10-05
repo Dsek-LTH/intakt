@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -16,8 +17,10 @@ import (
 
 const DefaultBaseURL = "https://api.fortnox.se/3"
 
-// fortnoxRate is 25 requests per 5-second window.
-var fortnoxRate = rate.NewLimiter(rate.Every(5*time.Second/25), 25)
+// fortnoxRate keeps every rolling 5-second window under Fortnox's limit of
+// 25 requests. The token bucket's burst counts on top of the refill rate
+// within a window, so worst case is burst + 5s of refills: 4 + 20 = 24.
+var fortnoxRate = rate.NewLimiter(rate.Every(250*time.Millisecond), 4)
 
 type Client struct {
 	baseURL       string
@@ -35,10 +38,9 @@ func NewClient(tokenProvider TokenProvider) *Client {
 	}
 }
 
-// NewClientFromEnv builds a Client authenticated with a RefreshingTokenProvider,
-// reading FORTNOX_CLIENT_ID and FORTNOX_CLIENT_SECRET from the environment and
-// the stored token from tokenFile.
-func NewClientFromEnv(tokenFile string) (*Client, error) {
+// OAuthConfigFromEnv reads FORTNOX_CLIENT_ID and FORTNOX_CLIENT_SECRET from
+// the environment, failing with the missing variable's name.
+func OAuthConfigFromEnv() (*OAuthConfig, error) {
 	clientID := os.Getenv("FORTNOX_CLIENT_ID")
 	clientSecret := os.Getenv("FORTNOX_CLIENT_SECRET")
 	if clientID == "" {
@@ -47,11 +49,18 @@ func NewClientFromEnv(tokenFile string) (*Client, error) {
 	if clientSecret == "" {
 		return nil, fmt.Errorf("missing env var FORTNOX_CLIENT_SECRET")
 	}
+	return &OAuthConfig{ClientID: clientID, ClientSecret: clientSecret}, nil
+}
 
-	return NewClient(&RefreshingTokenProvider{
-		Config:    &OAuthConfig{ClientID: clientID, ClientSecret: clientSecret},
-		TokenFile: tokenFile,
-	}), nil
+// NewClientFromEnv builds a Client authenticated with a RefreshingTokenProvider,
+// reading FORTNOX_CLIENT_ID and FORTNOX_CLIENT_SECRET from the environment and
+// the stored token from tokenFile.
+func NewClientFromEnv(tokenFile string) (*Client, error) {
+	cfg, err := OAuthConfigFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return NewClient(&RefreshingTokenProvider{Config: cfg, TokenFile: tokenFile}), nil
 }
 
 func (c *Client) newRequest(ctx context.Context, method string, path string, body io.Reader, contentType string) (*http.Request, error) {
@@ -79,11 +88,53 @@ func (c *Client) newRequest(ctx context.Context, method string, path string, bod
 	return req, nil
 }
 
+// do sends the request through the rate limiter, retrying on HTTP 429. The
+// limit is shared per tenant, so another integration (or a previous run) can
+// exhaust the window even when this process stays under it.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
-	if err := c.limiter.Wait(req.Context()); err != nil {
-		return nil, err
+	const maxRetries = 3
+	for attempt := 0; ; attempt++ {
+		if err := c.limiter.Wait(req.Context()); err != nil {
+			return nil, err
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || attempt == maxRetries {
+			return resp, nil
+		}
+
+		wait := retryAfter(resp, attempt)
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(wait):
+		}
+
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("rewinding request body for retry: %w", err)
+			}
+			req.Body = body
+		}
 	}
-	return c.httpClient.Do(req)
+}
+
+// retryAfter returns how long to wait before retrying a 429 response,
+// honouring the Retry-After header when present and backing off otherwise.
+func retryAfter(resp *http.Response, attempt int) time.Duration {
+	if s := resp.Header.Get("Retry-After"); s != "" {
+		if secs, err := strconv.Atoi(s); err == nil && secs >= 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return time.Duration(attempt+1) * 2 * time.Second
 }
 
 func (c *Client) uploadMultipart(ctx context.Context, path, filename string, data []byte, out any) error {

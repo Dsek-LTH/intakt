@@ -50,4 +50,4 @@ swish_amount_fallbacks:
 fortnox:
   zettle_account: "1919"   # clearing account for Zettle
   swish_account: "1933"    # clearing account for Swish
-  voucher_series: IR       # Fortnox voucher series to post into
+  voucher_series: "A"       # Fortnox voucher series to post into

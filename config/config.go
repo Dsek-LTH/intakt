@@ -44,13 +44,27 @@ type Config struct {
 	SwishAmountFallbacks map[int]string           `yaml:"swish_amount_fallbacks"`
 }
 
+// fallbackPrefix routes products whose name matches no configured prefix; its
+// mapping must exist (enforced by validate). feePrefix, when configured, books
+// Zettle fees on its own account instead of the fallback's.
+const (
+	fallbackPrefix = "sk"
+	feePrefix      = "z"
+)
+
+// FallbackPrefixAccount returns the mapping used for products and payments
+// whose name matches no configured prefix.
+func (c *Config) FallbackPrefixAccount() PrefixAccount {
+	return c.PrefixMappings[fallbackPrefix]
+}
+
 // FeePrefixAccount returns the prefix account used for Zettle fees.
-// It prefers the "z" prefix and falls back to "sk".
+// It prefers the fee prefix and falls back to the fallback prefix.
 func (c *Config) FeePrefixAccount() PrefixAccount {
-	if pa, ok := c.PrefixMappings["z"]; ok {
+	if pa, ok := c.PrefixMappings[feePrefix]; ok {
 		return pa
 	}
-	return c.PrefixMappings["sk"]
+	return c.FallbackPrefixAccount()
 }
 
 // Load reads the YAML file at path and returns a validated Config.
@@ -73,47 +87,40 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	if c.OutPath.Reports == "" {
-		return fmt.Errorf("out_path.reports is required")
+	required := []struct{ value, key string }{
+		{c.OutPath.Reports, "out_path.reports"},
+		{c.OutPath.Vouchers, "out_path.vouchers"},
+		{c.Attestation.Name, "attestation.name"},
+		{c.Attestation.StilID, "attestation.stil_id"},
+		{c.Fortnox.ZettleAccount, "fortnox.zettle_account"},
+		{c.Fortnox.SwishAccount, "fortnox.swish_account"},
+		{c.Fortnox.VoucherSeries, "fortnox.voucher_series"},
 	}
-
-	if c.OutPath.Vouchers == "" {
-		return fmt.Errorf("out_path.vouchers is required")
+	for _, field := range required {
+		if field.value == "" {
+			return fmt.Errorf("%s is required", field.key)
+		}
 	}
+	return c.validateMappings()
+}
 
-	if c.Attestation.Name == "" {
-		return fmt.Errorf("attestation.name is required")
-	}
-
-	if c.Attestation.StilID == "" {
-		return fmt.Errorf("attestation.stil_id is required")
-	}
-
+// validateMappings checks the routing tables: every prefix must point at a
+// defined committee, and the fallback prefix must exist — without it,
+// unmatched products would silently book to account 0.
+func (c *Config) validateMappings() error {
 	if len(c.PrefixMappings) == 0 {
 		return fmt.Errorf("prefix_mappings is empty")
 	}
-
+	if _, ok := c.PrefixMappings[fallbackPrefix]; !ok {
+		return fmt.Errorf("prefix_mappings must define the fallback prefix %q", fallbackPrefix)
+	}
 	if len(c.Committees) == 0 {
 		return fmt.Errorf("committees is empty")
 	}
-
 	for prefix, pa := range c.PrefixMappings {
 		if _, ok := c.Committees[pa.Name]; !ok {
 			return fmt.Errorf("prefix_mappings[%q]: committee %q is not defined in committees", prefix, pa.Name)
 		}
 	}
-
-	if c.Fortnox.ZettleAccount == "" {
-		return fmt.Errorf("fortnox.zettle_account is required")
-	}
-
-	if c.Fortnox.SwishAccount == "" {
-		return fmt.Errorf("fortnox.swish_account is required")
-	}
-
-	if c.Fortnox.VoucherSeries == "" {
-		return fmt.Errorf("fortnox.voucher_series is required")
-	}
-
 	return nil
 }

@@ -94,7 +94,7 @@ func feeToTexData(cfg *config.Config, key string, r *FeeReport) texData {
 
 	return texData{
 		Skeleton:     "avgift.tex",
-		OutputBase:   "avgift-" + key,
+		OutputBase:   FeeFilePrefix + key,
 		Created:      time.Now().Format("2006-01-02"),
 		CostCenter:   latexEscape(committee.ProperName),
 		Type:         "Zettle",
@@ -110,7 +110,7 @@ func feeToTexData(cfg *config.Config, key string, r *FeeReport) texData {
 // CompileFees renders every fee report to a PDF via pdflatex.
 // onProgress is called after each PDF is compiled; pass nil to skip.
 func CompileFees(cfg *config.Config, assetsDir string, reports map[string]*FeeReport, onProgress func()) error {
-	outDir := filepath.Join(cfg.OutPath.Reports, "fees")
+	outDir := filepath.Join(cfg.OutPath.Reports, SubdirFees)
 	return compileAll(reports, onProgress, func(key string, r *FeeReport) error {
 		return compileTeX(assetsDir, outDir, feeToTexData(cfg, key, r))
 	})

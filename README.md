@@ -188,13 +188,14 @@ Run `intakt help`, or `intakt <command> -h` for a command's flags.
 
 | Command | Key flags |
 | --- | --- |
-| `login` | `--token-file` |
+| `login` | — |
 | `fetch` | — |
-| `compile` | `--config`, `--assets` |
-| `upload` | `--config`, `--token-file`, `--dry-run` |
+| `compile` | `--assets` |
+| `upload` | `--dry-run` |
 
-Defaults: `--config config.yaml`, `--assets assets`, `--token-file
-<user-config-dir>/intakt/fortnox_token.json`.
+`compile` and `upload` read bookkeeping rules from `config.yaml` in the working
+directory. The Fortnox token is stored at
+`<user-config-dir>/intakt/fortnox_token.json`. Default: `--assets assets`.
 
 ---
 
@@ -212,6 +213,16 @@ fortnox/                Fortnox API client (vouchers, inbox, OAuth token store)
 report/                 parsing → reports → LaTeX/PDF and reconciliation TSV
 assets/                 LaTeX skeletons (intakt.tex, avgift.tex) and signature art
 ```
+
+## Development
+
+```sh
+go test ./...   # unit tests (parsing, money arithmetic, cache merging, API clients)
+go vet ./...
+```
+
+The tests need no credentials or network access; API clients are tested
+against local `httptest` stubs.
 
 ## Notes
 

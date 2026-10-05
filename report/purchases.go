@@ -146,7 +146,7 @@ func addPurchaseDiscounts(cfg *config.Config, lines []saleLine, discounts []zett
 // keyed by "<committee>-<date>".
 func ParsePurchases(cfg *config.Config, purchases []zettle.Purchase) map[string]*Report {
 	reports := make(map[string]*Report)
-	fallback := cfg.PrefixMappings["sk"]
+	fallback := cfg.FallbackPrefixAccount()
 	re := regexp.MustCompile(buildRegexFromValidPrefixes(cfg))
 
 	for _, purchase := range purchases {

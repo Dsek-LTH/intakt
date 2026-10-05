@@ -53,11 +53,11 @@ func ParseReconciliation(txs []zettle.TransactionFee) []ReconciliationRow {
 
 func txTypeDescription(t string) string {
 	switch t {
-	case "PAYMENT":
+	case zettle.TxTypePayment:
 		return "Zettle köp"
-	case "PAYMENT_FEE":
+	case zettle.TxTypePaymentFee:
 		return "Zettle avgift"
-	case "PAYOUT":
+	case zettle.TxTypePayout:
 		return "Zettle utbetalning"
 	default:
 		return "Zettle " + strings.ToLower(t)
@@ -66,11 +66,11 @@ func txTypeDescription(t string) string {
 
 func txTypeSortOrder(t string) int {
 	switch t {
-	case "PAYMENT":
+	case zettle.TxTypePayment:
 		return 1
-	case "PAYMENT_FEE":
+	case zettle.TxTypePaymentFee:
 		return 2
-	case "PAYOUT":
+	case zettle.TxTypePayout:
 		return 3
 	default:
 		return 4

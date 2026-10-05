@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+// Names of the on-disk cache datasets written by fetch and read by compile.
+const (
+	cachePurchases = "purchases"
+	cacheFinance   = "finance"
+)
+
 // Source is a data source that knows how to fetch, render, and upload its reports.
 // Implement this interface to add a new payment source.
 type Source interface {
@@ -44,6 +50,58 @@ func cacheRequiredErr(start, end time.Time) error {
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
 }
 
+// readCachedRange loads the cached dataset covering [start, end] and filters it
+// to that range, behind a "Reading cache..." spinner row. It fails with a
+// fetch hint when no cache file covers the range.
+func readCachedRange[T any](dataset string, start, end time.Time, timestamp func(T) string) ([]T, error) {
+	cacheDir, err := cache.Dir()
+	if err != nil {
+		return nil, err
+	}
+	path, ok := cache.FindCovering(cacheDir, dataset, start, end)
+	if !ok {
+		return nil, cacheRequiredErr(start, end)
+	}
+	var all []T
+	if err := dimSpinWhile("Reading cache...", func() error {
+		var e error
+		all, e = cache.ReadFile[T](path)
+		return e
+	}); err != nil {
+		return nil, err
+	}
+	return cache.FilterByDate(all, start, end, timestamp), nil
+}
+
+// compileWithProgress runs compile behind a "Compiling PDFs" progress-bar row,
+// advancing it once per rendered report.
+func compileWithProgress(total int, compile func(onProgress func()) error) error {
+	bar := newProgressBar(total, "Compiling PDFs")
+	err := compile(func() { _ = bar.Add(1) })
+	_ = bar.Finish()
+	return err
+}
+
+// saveSalesVouchers persists one pending voucher per sales report, pointing at
+// the PDF that the compile step rendered into subdir under out_path.reports.
+func saveSalesVouchers(cfg *config.Config, reports map[string]*report.Report, subdir, paymentMethod, clearingAccount string) error {
+	for key, r := range reports {
+		req, err := voucher.ReportRequest(cfg, r, paymentMethod, clearingAccount)
+		if err != nil {
+			return fmt.Errorf("%s: building voucher: %w", key, err)
+		}
+		pv := voucher.PendingVoucher{
+			Request:           req,
+			PDFPath:           filepath.Join(cfg.OutPath.Reports, subdir, key+".pdf"),
+			DefaultCostCenter: cfg.Committees[r.UtskottPrefix].DefaultCostCenter,
+		}
+		if err := voucher.Save(cfg.OutPath.Vouchers, key, pv); err != nil {
+			return fmt.Errorf("%s: saving voucher data: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // -- zettle (purchases) --
 
 type zettleSource struct {
@@ -52,52 +110,26 @@ type zettleSource struct {
 }
 
 func (s *zettleSource) Fetch(_ context.Context, start, end time.Time) error {
-	cacheDir, err := cache.Dir()
+	purchases, err := readCachedRange(cachePurchases, start, end,
+		func(p zettle.Purchase) string { return p.Timestamp })
 	if err != nil {
 		return err
 	}
-	path, ok := cache.FindCovering(cacheDir, "purchases", start, end)
-	if !ok {
-		return cacheRequiredErr(start, end)
-	}
-	var all []zettle.Purchase
-	if err := dimSpinWhile("Reading cache...", func() error {
-		var e error
-		all, e = cache.ReadFile[zettle.Purchase](path)
-		return e
-	}); err != nil {
-		return err
-	}
 	return dimSpinWhile("Aggregating purchases...", func() error {
-		purchases := cache.FilterByDate(all, start, end, func(p zettle.Purchase) string { return p.Timestamp })
 		s.reports = report.ParsePurchases(s.cfg, purchases)
 		return nil
 	})
 }
 
 func (s *zettleSource) Compile(assetsDir string) error {
-	bar := newProgressBar(len(s.reports), "Compiling PDFs")
-	if err := report.Compile(s.cfg, assetsDir, s.reports, func() { _ = bar.Add(1) }); err != nil {
-		_ = bar.Finish()
+	err := compileWithProgress(len(s.reports), func(onProgress func()) error {
+		return report.Compile(s.cfg, assetsDir, s.reports, onProgress)
+	})
+	if err != nil {
 		return err
 	}
-	_ = bar.Finish()
 	return dimSpinWhile("Saving vouchers...", func() error {
-		for key, r := range s.reports {
-			req, err := voucher.ReportRequest(s.cfg, r, "Zettle", s.cfg.Fortnox.ZettleAccount)
-			if err != nil {
-				return fmt.Errorf("%s: building voucher: %w", key, err)
-			}
-			pv := voucher.PendingVoucher{
-				Request:           req,
-				PDFPath:           filepath.Join(s.cfg.OutPath.Reports, "purchases", key+".pdf"),
-				DefaultCostCenter: s.cfg.Committees[r.UtskottPrefix].DefaultCostCenter,
-			}
-			if err := voucher.Save(s.cfg.OutPath.Vouchers, key, pv); err != nil {
-				return fmt.Errorf("%s: saving voucher data: %w", key, err)
-			}
-		}
-		return nil
+		return saveSalesVouchers(s.cfg, s.reports, report.SubdirPurchases, "Zettle", s.cfg.Fortnox.ZettleAccount)
 	})
 }
 
@@ -109,27 +141,15 @@ type feesSource struct {
 }
 
 func (s *feesSource) Fetch(_ context.Context, start, end time.Time) error {
-	cacheDir, err := cache.Dir()
+	txs, err := readCachedRange(cacheFinance, start, end,
+		func(tx zettle.TransactionFee) string { return tx.Timestamp })
 	if err != nil {
 		return err
 	}
-	path, ok := cache.FindCovering(cacheDir, "finance", start, end)
-	if !ok {
-		return cacheRequiredErr(start, end)
-	}
-	var allTxs []zettle.TransactionFee
-	if err := dimSpinWhile("Reading cache...", func() error {
-		var e error
-		allTxs, e = cache.ReadFile[zettle.TransactionFee](path)
-		return e
-	}); err != nil {
-		return err
-	}
 	return dimSpinWhile("Aggregating fees...", func() error {
-		allTxs = cache.FilterByDate(allTxs, start, end, func(tx zettle.TransactionFee) string { return tx.Timestamp })
 		var fees []zettle.TransactionFee
-		for _, tx := range allTxs {
-			if tx.OriginatorTransactionType == "PAYMENT_FEE" {
+		for _, tx := range txs {
+			if tx.OriginatorTransactionType == zettle.TxTypePaymentFee {
 				fees = append(fees, tx)
 			}
 		}
@@ -139,12 +159,12 @@ func (s *feesSource) Fetch(_ context.Context, start, end time.Time) error {
 }
 
 func (s *feesSource) Compile(assetsDir string) error {
-	bar := newProgressBar(len(s.reports), "Compiling PDFs")
-	if err := report.CompileFees(s.cfg, assetsDir, s.reports, func() { _ = bar.Add(1) }); err != nil {
-		_ = bar.Finish()
+	err := compileWithProgress(len(s.reports), func(onProgress func()) error {
+		return report.CompileFees(s.cfg, assetsDir, s.reports, onProgress)
+	})
+	if err != nil {
 		return err
 	}
-	_ = bar.Finish()
 	return dimSpinWhile("Saving vouchers...", func() error {
 		pa := s.cfg.FeePrefixAccount()
 		defaultCC := s.cfg.Committees[pa.Name].DefaultCostCenter
@@ -153,12 +173,13 @@ func (s *feesSource) Compile(assetsDir string) error {
 			if err != nil {
 				return fmt.Errorf("%s: building voucher: %w", key, err)
 			}
+			fileKey := report.FeeFilePrefix + key
 			pv := voucher.PendingVoucher{
 				Request:           req,
-				PDFPath:           filepath.Join(s.cfg.OutPath.Reports, "fees", "avgift-"+key+".pdf"),
+				PDFPath:           filepath.Join(s.cfg.OutPath.Reports, report.SubdirFees, fileKey+".pdf"),
 				DefaultCostCenter: defaultCC,
 			}
-			if err := voucher.Save(s.cfg.OutPath.Vouchers, "avgift-"+key, pv); err != nil {
+			if err := voucher.Save(s.cfg.OutPath.Vouchers, fileKey, pv); err != nil {
 				return fmt.Errorf("%s: saving voucher data: %w", key, err)
 			}
 		}
@@ -178,34 +199,21 @@ type reconcileSource struct {
 func (s *reconcileSource) Fetch(_ context.Context, start, end time.Time) error {
 	s.start = start
 	s.end = end
-	cacheDir, err := cache.Dir()
+	txs, err := readCachedRange(cacheFinance, start, end,
+		func(tx zettle.TransactionFee) string { return tx.Timestamp })
 	if err != nil {
 		return err
 	}
-	path, ok := cache.FindCovering(cacheDir, "finance", start, end)
-	if !ok {
-		return cacheRequiredErr(start, end)
-	}
-	var allTxs []zettle.TransactionFee
-	if err := dimSpinWhile("Reading cache...", func() error {
-		var e error
-		allTxs, e = cache.ReadFile[zettle.TransactionFee](path)
-		return e
-	}); err != nil {
-		return err
-	}
 	return dimSpinWhile("Aggregating transactions...", func() error {
-		allTxs = cache.FilterByDate(allTxs, start, end, func(tx zettle.TransactionFee) string { return tx.Timestamp })
-		s.rows = report.ParseReconciliation(allTxs)
+		s.rows = report.ParseReconciliation(txs)
 		return nil
 	})
 }
 
 func (s *reconcileSource) Compile(_ string) error {
-	outDir := filepath.Join(s.cfg.OutPath.Reports, "reconciliation")
+	outDir := filepath.Join(s.cfg.OutPath.Reports, report.SubdirReconciliation)
 	filename := fmt.Sprintf("zettle-%s--%s.txt", s.start.Format("2006-01-02"), s.end.Format("2006-01-02"))
-	path := filepath.Join(outDir, filename)
-	return report.WriteReconciliationTSV(s.rows, s.start, s.end, path)
+	return report.WriteReconciliationTSV(s.rows, s.start, s.end, filepath.Join(outDir, filename))
 }
 
 // -- swish --
@@ -231,27 +239,13 @@ func (s *swishSource) Fetch(_ context.Context, start, end time.Time) error {
 }
 
 func (s *swishSource) Compile(assetsDir string) error {
-	bar := newProgressBar(len(s.reports), "Compiling PDFs")
-	if err := report.CompileSwish(s.cfg, assetsDir, s.reports, func() { _ = bar.Add(1) }); err != nil {
-		_ = bar.Finish()
+	err := compileWithProgress(len(s.reports), func(onProgress func()) error {
+		return report.CompileSwish(s.cfg, assetsDir, s.reports, onProgress)
+	})
+	if err != nil {
 		return err
 	}
-	_ = bar.Finish()
 	return dimSpinWhile("Saving vouchers...", func() error {
-		for key, r := range s.reports {
-			req, err := voucher.ReportRequest(s.cfg, r, "Swish", s.cfg.Fortnox.SwishAccount)
-			if err != nil {
-				return fmt.Errorf("%s: building voucher: %w", key, err)
-			}
-			pv := voucher.PendingVoucher{
-				Request:           req,
-				PDFPath:           filepath.Join(s.cfg.OutPath.Reports, "swish", key+".pdf"),
-				DefaultCostCenter: s.cfg.Committees[r.UtskottPrefix].DefaultCostCenter,
-			}
-			if err := voucher.Save(s.cfg.OutPath.Vouchers, key, pv); err != nil {
-				return fmt.Errorf("%s: saving voucher data: %w", key, err)
-			}
-		}
-		return nil
+		return saveSalesVouchers(s.cfg, s.reports, report.SubdirSwish, "Swish", s.cfg.Fortnox.SwishAccount)
 	})
 }

@@ -9,9 +9,15 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 var authHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// zettleRate throttles all API requests to keep the sharded, concurrent fetch
+// well inside Zettle's limits: ~10 requests/second with a small burst.
+var zettleRate = rate.NewLimiter(rate.Limit(10), 10)
 
 const (
 	zettleTokenURL = "https://oauth.zettle.com/token"
@@ -34,9 +40,15 @@ type bearerAuthTransport struct {
 	base     http.RoundTripper
 	token    string
 	clientId string
+	limiter  *rate.Limiter
 }
 
 func (t bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.limiter != nil {
+		if err := t.limiter.Wait(req.Context()); err != nil {
+			return nil, err
+		}
+	}
 	cloned := req.Clone(req.Context())
 	cloned.Header.Set("Authorization", "Bearer "+t.token)
 	cloned.Header.Set("Accept", "application/json")
@@ -102,6 +114,7 @@ func NewClientFromEnv(ctx context.Context) (*Client, error) {
 				base:     http.DefaultTransport,
 				token:    accessToken,
 				clientId: clientId,
+				limiter:  zettleRate,
 			},
 		},
 	}, nil

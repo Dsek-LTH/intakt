@@ -6,6 +6,7 @@ import (
 	"intakt/config"
 	"intakt/fortnox"
 	"intakt/internal/voucher"
+	"intakt/report"
 	"path/filepath"
 	"strings"
 
@@ -374,6 +375,18 @@ func (m tuiModel) allValid() bool {
 	return true
 }
 
+// counts returns how many entries will be uploaded and how many are skipped.
+func (m tuiModel) counts() (upload, skip int) {
+	for _, e := range m.entries {
+		if e.skip {
+			skip++
+		} else {
+			upload++
+		}
+	}
+	return upload, skip
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 var (
@@ -437,74 +450,6 @@ func (m tuiModel) reviewView() string {
 
 	nav := styleDim.Render(fmt.Sprintf("Entry %d of %d", m.cursor+1, len(m.entries)))
 
-	// Title and sub-title rows inside the card.
-	desc := e.pv.Request.Voucher.Description
-	date := e.pv.Request.Voucher.TransactionDate
-	source := voucherSource(e.pv.PDFPath)
-	total := voucherTotal(e.pv)
-
-	var titleStyle, metaStyle lipgloss.Style
-	if e.skip {
-		titleStyle = styleSkipped
-		metaStyle = styleSkipped
-	} else {
-		titleStyle = styleBold
-		metaStyle = styleDim
-	}
-
-	titleRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		titleStyle.Width(cardWidth-12).Render(desc),
-		metaStyle.Render(fmt.Sprintf("%8.2f kr", total)),
-	)
-	metaRow := metaStyle.Render(date + "  ·  " + source)
-
-	// Account rows.
-	var acctLines []string
-	for _, row := range e.pv.Request.Voucher.VoucherRows {
-		acctDesc := m.cfg.AccountDescriptions[fmt.Sprintf("%d", row.Account)]
-		if acctDesc == "" {
-			acctDesc = "–"
-		}
-		var dir, amt string
-		if row.Credit > 0 {
-			dir = "cr"
-			amt = fmt.Sprintf("%9.2f", row.Credit)
-		} else {
-			dir = "dr"
-			amt = fmt.Sprintf("%9.2f", row.Debit)
-		}
-		line := fmt.Sprintf("  %-5d  %-32s  %s  %s", row.Account, acctDesc, dir, amt)
-		if e.skip {
-			acctLines = append(acctLines, styleSkipped.Render(line))
-		} else {
-			acctLines = append(acctLines, line)
-		}
-	}
-
-	// Cost center row.
-	var ccRow string
-	if e.skip {
-		ccRow = styleSkipped.Render("  Cost center  (skipped)")
-	} else {
-		ccRow = "  Cost center  " + m.input.View()
-	}
-
-	body := strings.Join([]string{
-		titleRow,
-		metaRow,
-		styleDim.Render(styleDivider),
-		strings.Join(acctLines, "\n"),
-		styleDim.Render(styleDivider),
-		ccRow,
-	}, "\n")
-
-	var card string
-	if e.skip {
-		card = styleCardSkipped.Render(body)
-	} else {
-		card = styleCard.Render(body)
-	}
-
 	skipHint := hint("ctrl+s", "skip & next")
 	if e.skip {
 		skipHint = hint("ctrl+s", "include & next")
@@ -517,7 +462,63 @@ func (m tuiModel) reviewView() string {
 		hint("esc", "quit"),
 	}, "   ")
 
-	return "\n" + nav + "\n\n" + card + "\n\n" + hints + "\n"
+	return "\n" + nav + "\n\n" + m.reviewCard(e) + "\n\n" + hints + "\n"
+}
+
+// reviewCard renders one voucher as a bordered card: title and meta rows, the
+// account rows, and the editable cost-center row. Skipped entries render
+// entirely in the muted "skipped" style.
+func (m tuiModel) reviewCard(e reviewEntry) string {
+	titleStyle, metaStyle := styleBold, styleDim
+	if e.skip {
+		titleStyle, metaStyle = styleSkipped, styleSkipped
+	}
+
+	titleRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		titleStyle.Width(cardWidth-12).Render(e.pv.Request.Voucher.Description),
+		metaStyle.Render(fmt.Sprintf("%8.2f kr", voucherTotal(e.pv))),
+	)
+	metaRow := metaStyle.Render(e.pv.Request.Voucher.TransactionDate + "  ·  " + voucherSource(e.pv.PDFPath))
+
+	ccRow := "  Cost center  " + m.input.View()
+	if e.skip {
+		ccRow = styleSkipped.Render("  Cost center  (skipped)")
+	}
+
+	body := strings.Join([]string{
+		titleRow,
+		metaRow,
+		styleDim.Render(styleDivider),
+		strings.Join(m.accountRows(e), "\n"),
+		styleDim.Render(styleDivider),
+		ccRow,
+	}, "\n")
+
+	if e.skip {
+		return styleCardSkipped.Render(body)
+	}
+	return styleCard.Render(body)
+}
+
+// accountRows renders one "account description dr/cr amount" line per voucher row.
+func (m tuiModel) accountRows(e reviewEntry) []string {
+	var lines []string
+	for _, row := range e.pv.Request.Voucher.VoucherRows {
+		acctDesc := m.cfg.AccountDescriptions[fmt.Sprintf("%d", row.Account)]
+		if acctDesc == "" {
+			acctDesc = "–"
+		}
+		dir, amt := "dr", fmt.Sprintf("%9.2f", row.Debit)
+		if row.Credit > 0 {
+			dir, amt = "cr", fmt.Sprintf("%9.2f", row.Credit)
+		}
+		line := fmt.Sprintf("  %-5d  %-32s  %s  %s", row.Account, acctDesc, dir, amt)
+		if e.skip {
+			line = styleSkipped.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // summaryRows renders one line per entry, marking the highlighted one.
@@ -548,14 +549,7 @@ func (m tuiModel) summaryRows() string {
 }
 
 func (m tuiModel) confirmView() string {
-	var uploadCount, skipCount int
-	for _, e := range m.entries {
-		if e.skip {
-			skipCount++
-		} else {
-			uploadCount++
-		}
-	}
+	uploadCount, skipCount := m.counts()
 
 	title := styleBold.Render("Summary")
 	sub := styleDim.Render(fmt.Sprintf("%d will be uploaded, %d will be skipped", uploadCount, skipCount))
@@ -595,14 +589,7 @@ func (m tuiModel) confirmView() string {
 }
 
 func (m tuiModel) uploadView() string {
-	var uploadCount, skipCount int
-	for _, e := range m.entries {
-		if e.skip {
-			skipCount++
-			continue
-		}
-		uploadCount++
-	}
+	uploadCount, skipCount := m.counts()
 
 	series := m.cfg.Fortnox.VoucherSeries
 	if series == "" {
@@ -658,45 +645,45 @@ func (m tuiModel) uploadingView() string {
 }
 
 func (m tuiModel) resultView() string {
+	title, lines := m.resultContent()
+	body := title + "\n\n" + strings.Join(lines, "\n")
+	card := styleUploadCard.Render(body)
+
+	return "\n" + card + "\n\n  " + hint("any key", "quit") + "\n"
+}
+
+// resultContent builds the final card's title and body lines for either a dry
+// run or a real upload, including per-voucher failure lines.
+func (m tuiModel) resultContent() (title string, lines []string) {
 	series := m.cfg.Fortnox.VoucherSeries
 	if series == "" {
 		series = "?"
 	}
 
-	var title string
-	var lines []string
 	if m.dryRun {
-		title = styleBold.Render("Dry run")
-		lines = []string{
+		return styleBold.Render("Dry run"), []string{
 			fmt.Sprintf("%s voucher(s) would be uploaded to Fortnox in series %s.",
 				styleBold.Render(fmt.Sprintf("%d", m.toUpload)), styleBold.Render(series)),
 			styleDim.Render("No vouchers were sent."),
 		}
-	} else {
-		if m.failed > 0 {
-			title = styleRed.Bold(true).Render("Upload finished with errors")
-		} else {
-			title = styleGreen.Bold(true).Render("Upload complete")
-		}
-		lines = []string{
-			styleGreen.Render(fmt.Sprintf("✓ %d uploaded", m.uploaded)),
-		}
-		if m.failed > 0 {
-			lines = append(lines,
-				styleRed.Render(fmt.Sprintf("✗ %d failed — left on disk to retry:", m.failed)),
-			)
-			for _, r := range m.results {
-				if r.err != nil {
-					lines = append(lines, styleDim.Render("  "+r.key+": ")+styleRed.Render(truncate(r.err.Error(), cardWidth-10)))
-				}
+	}
+
+	title = styleGreen.Bold(true).Render("Upload complete")
+	if m.failed > 0 {
+		title = styleRed.Bold(true).Render("Upload finished with errors")
+	}
+	lines = []string{styleGreen.Render(fmt.Sprintf("✓ %d uploaded", m.uploaded))}
+	if m.failed > 0 {
+		lines = append(lines,
+			styleRed.Render(fmt.Sprintf("✗ %d failed — left on disk to retry:", m.failed)),
+		)
+		for _, r := range m.results {
+			if r.err != nil {
+				lines = append(lines, styleDim.Render("  "+r.key+": ")+styleRed.Render(truncate(r.err.Error(), cardWidth-10)))
 			}
 		}
 	}
-
-	body := title + "\n\n" + strings.Join(lines, "\n")
-	card := styleUploadCard.Render(body)
-
-	return "\n" + card + "\n\n  " + hint("any key", "quit") + "\n"
+	return title, lines
 }
 
 // truncate shortens s to at most n runes, adding an ellipsis when cut.
@@ -713,14 +700,15 @@ func truncate(s string, n int) string {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// voucherSource returns a human-readable source label derived from the PDF path.
+// voucherSource returns a human-readable source label derived from the PDF's
+// report subdirectory.
 func voucherSource(pdfPath string) string {
 	switch filepath.Base(filepath.Dir(pdfPath)) {
-	case "purchases":
+	case report.SubdirPurchases:
 		return "Zettle · purchases"
-	case "fees":
+	case report.SubdirFees:
 		return "Zettle · fees"
-	case "swish":
+	case report.SubdirSwish:
 		return "Swish"
 	default:
 		return "unknown"

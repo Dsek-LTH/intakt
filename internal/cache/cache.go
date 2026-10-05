@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// dateFormat is the day-resolution format used in cache filenames.
+const dateFormat = "2006-01-02"
+
 // Dir returns the on-disk directory used to cache fetched Zettle data.
 func Dir() (string, error) {
 	base, err := os.UserCacheDir()
@@ -17,6 +20,84 @@ func Dir() (string, error) {
 		return "", fmt.Errorf("locating cache directory: %w", err)
 	}
 	return filepath.Join(base, "intakt"), nil
+}
+
+// rangeFileName builds the canonical cache filename for prefix covering the
+// inclusive day range [start, end]: "<prefix>-START--END.json".
+func rangeFileName(prefix string, start, end time.Time) string {
+	return prefix + "-" + start.Format(dateFormat) + "--" + end.Format(dateFormat) + ".json"
+}
+
+// parseRangeFileName is the inverse of rangeFileName. It reports ok=false for
+// filenames that don't belong to prefix or don't follow the convention.
+func parseRangeFileName(name, prefix string) (start, end time.Time, ok bool) {
+	if !strings.HasPrefix(name, prefix+"-") || !strings.HasSuffix(name, ".json") {
+		return time.Time{}, time.Time{}, false
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(name, prefix+"-"), ".json")
+	parts := strings.SplitN(inner, "--", 2)
+	if len(parts) != 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	start, err1 := time.Parse(dateFormat, parts[0])
+	end, err2 := time.Parse(dateFormat, parts[1])
+	if err1 != nil || err2 != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	return start, end, true
+}
+
+// existingCache is the merged content and provenance of all cache files found
+// for one prefix.
+type existingCache[T any] struct {
+	items      []T
+	paths      []string  // files the items came from, removed after a rewrite
+	start, end time.Time // union of the files' date ranges
+}
+
+// loadExisting reads every cache file for prefix in dir, starting from the
+// seed range [start, end] and widening it to the union of all files found.
+// Unreadable or misnamed files are skipped rather than failing the merge.
+func loadExisting[T any](dir, prefix string, start, end time.Time) existingCache[T] {
+	ex := existingCache[T]{start: start, end: end}
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return ex
+	}
+	for _, e := range dirEntries {
+		fileStart, fileEnd, ok := parseRangeFileName(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		items, err := ReadFile[T](path)
+		if err != nil {
+			continue
+		}
+		ex.items = append(ex.items, items...)
+		ex.paths = append(ex.paths, path)
+		if fileStart.Before(ex.start) {
+			ex.start = fileStart
+		}
+		if fileEnd.After(ex.end) {
+			ex.end = fileEnd
+		}
+	}
+	return ex
+}
+
+// dedupeByKey keeps the first occurrence of each key, preserving order.
+func dedupeByKey[T any](items []T, key func(T) string) []T {
+	seen := make(map[string]struct{}, len(items))
+	result := make([]T, 0, len(items))
+	for _, item := range items {
+		k := key(item)
+		if _, dup := seen[k]; !dup {
+			seen[k] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // MergeAndWrite loads all existing cache files for prefix, merges them with
@@ -27,57 +108,11 @@ func MergeAndWrite[T any](dir, prefix string, start, end time.Time, newItems []T
 		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	unionStart := dateOnly(start)
-	unionEnd := dateOnly(end)
+	existing := loadExisting[T](dir, prefix, dateOnly(start), dateOnly(end))
+	// New items first so fresher data wins on duplicate keys.
+	merged := dedupeByKey(append(newItems, existing.items...), key)
 
-	var existing []T
-	var oldPaths []string
-
-	if dirEntries, err := os.ReadDir(dir); err == nil {
-		for _, e := range dirEntries {
-			name := e.Name()
-			if !strings.HasPrefix(name, prefix+"-") || !strings.HasSuffix(name, ".json") {
-				continue
-			}
-			inner := strings.TrimSuffix(strings.TrimPrefix(name, prefix+"-"), ".json")
-			parts := strings.SplitN(inner, "--", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			fileStart, err1 := time.Parse("2006-01-02", parts[0])
-			fileEnd, err2 := time.Parse("2006-01-02", parts[1])
-			if err1 != nil || err2 != nil {
-				continue
-			}
-			path := filepath.Join(dir, name)
-			items, err := ReadFile[T](path)
-			if err != nil {
-				continue
-			}
-			existing = append(existing, items...)
-			oldPaths = append(oldPaths, path)
-			if fileStart.Before(unionStart) {
-				unionStart = fileStart
-			}
-			if fileEnd.After(unionEnd) {
-				unionEnd = fileEnd
-			}
-		}
-	}
-
-	// Merge: new items first so fresher data wins on duplicate keys.
-	seen := make(map[string]struct{}, len(existing)+len(newItems))
-	merged := make([]T, 0, len(existing)+len(newItems))
-	for _, item := range append(newItems, existing...) {
-		k := key(item)
-		if _, dup := seen[k]; !dup {
-			seen[k] = struct{}{}
-			merged = append(merged, item)
-		}
-	}
-
-	outName := prefix + "-" + unionStart.Format("2006-01-02") + "--" + unionEnd.Format("2006-01-02") + ".json"
-	outPath := filepath.Join(dir, outName)
+	outPath := filepath.Join(dir, rangeFileName(prefix, existing.start, existing.end))
 	b, err := json.Marshal(merged)
 	if err != nil {
 		return "", fmt.Errorf("encoding cache: %w", err)
@@ -86,12 +121,11 @@ func MergeAndWrite[T any](dir, prefix string, start, end time.Time, newItems []T
 		return "", err
 	}
 
-	for _, p := range oldPaths {
+	for _, p := range existing.paths {
 		if p != outPath {
 			_ = os.Remove(p)
 		}
 	}
-
 	return outPath, nil
 }
 
@@ -120,22 +154,12 @@ func FindCovering(dir, prefix string, start, end time.Time) (string, bool) {
 	wantStart := dateOnly(start)
 	wantEnd := dateOnly(end)
 	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, prefix+"-") || !strings.HasSuffix(name, ".json") {
-			continue
-		}
-		inner := strings.TrimSuffix(strings.TrimPrefix(name, prefix+"-"), ".json")
-		parts := strings.SplitN(inner, "--", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		cacheStart, err1 := time.Parse("2006-01-02", parts[0])
-		cacheEnd, err2 := time.Parse("2006-01-02", parts[1])
-		if err1 != nil || err2 != nil {
+		cacheStart, cacheEnd, ok := parseRangeFileName(e.Name(), prefix)
+		if !ok {
 			continue
 		}
 		if !cacheStart.After(wantStart) && !cacheEnd.Before(wantEnd) {
-			return filepath.Join(dir, name), true
+			return filepath.Join(dir, e.Name()), true
 		}
 	}
 	return "", false
