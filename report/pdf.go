@@ -137,6 +137,23 @@ func productRowsToTex(products []Entry) string {
 	return strings.Join(groups, "\\\\\n\\addlinespace[4pt]\n")
 }
 
+// RenderReport renders one report and returns the PDF, writing nothing.
+//
+// The service's path. It answers with bytes because it holds no state and owns
+// no output directory — what the file is called and where it is kept is the
+// caller's business, and by this point the report is not even the one that was
+// fetched: it has been reviewed, and its cost centre may have been corrected.
+//
+// `key` is only ever the jobname inside a temp directory here (see renderTeX),
+// so it is left empty rather than invented.
+func RenderReport(cfg *config.Config, assetsDir string, r *Report, paymentType string) ([]byte, error) {
+	d := reportToTexData(cfg, "", r)
+	if strings.TrimSpace(paymentType) != "" {
+		d.Type = paymentType
+	}
+	return renderTeX(assetsDir, d)
+}
+
 func compileReports(cfg *config.Config, assetsDir, subdir, paymentType string, reports map[string]*Report, onProgress func()) error {
 	outDir := filepath.Join(cfg.OutPath.Reports, subdir)
 	return compileAll(reports, onProgress, func(key string, r *Report) error {

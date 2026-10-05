@@ -9,6 +9,11 @@ var timestampLayouts = []string{
 	time.RFC3339Nano,
 	"2006-01-02T15:04:05.000-0700",
 	"2006-01-02T15:04:05-0700",
+	// Both without an offset, which is how the finance API writes them — the
+	// purchase API stamps a zone, the transactions behind the fees do not.
+	// Parsed as UTC, like the rest.
+	"2006-01-02T15:04:05.000",
+	"2006-01-02T15:04:05",
 	"2006-01-02",
 }
 

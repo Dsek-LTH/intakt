@@ -107,6 +107,12 @@ func feeToTexData(cfg *config.Config, key string, r *FeeReport) texData {
 	}
 }
 
+// RenderFeeReport renders one day of fees and returns the PDF, writing nothing
+// — the service's path, as RenderReport is for takings.
+func RenderFeeReport(cfg *config.Config, assetsDir string, r *FeeReport) ([]byte, error) {
+	return renderTeX(assetsDir, feeToTexData(cfg, "", r))
+}
+
 // CompileFees renders every fee report to a PDF via pdflatex.
 // onProgress is called after each PDF is compiled; pass nil to skip.
 func CompileFees(cfg *config.Config, assetsDir string, reports map[string]*FeeReport, onProgress func()) error {

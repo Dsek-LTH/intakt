@@ -19,6 +19,7 @@ COMMANDS
   fetch    <start> <end>                    download and cache Zettle data for a date range
   compile  <source> <start> <end> [<file>]  build voucher PDFs and pending vouchers
   upload                                    review pending vouchers and upload them to Fortnox
+  serve    [flags]                          run as an HTTP service for utlagg (see -h)
   help                                      show this help
 
 WORKFLOW
@@ -37,9 +38,15 @@ ARGUMENTS
   <start> <end>  inclusive dates, formatted YYYY-MM-DD
   <file>         path to a Swish CSV export (required only for the swish source)
 
+SERVICE
+  The same fetching and rendering, over HTTP, for utlagg to drive: it holds the
+  routing table and does the reviewing and the booking, and calls in for the
+  parts that are intakt's. It writes nothing and never talks to Fortnox.
+
 ENVIRONMENT (loaded from .env or the shell)
-  ZETTLE_CLIENT_ID, ZETTLE_API_KEY          Zettle API credentials (used by fetch)
+  ZETTLE_CLIENT_ID, ZETTLE_API_KEY          Zettle API credentials (fetch, serve)
   FORTNOX_CLIENT_ID, FORTNOX_CLIENT_SECRET  Fortnox OAuth credentials (login, upload)
+  INTAKT_TOKEN                              bearer token callers present (serve)
 
 FILES
   config.yaml    accounts, committees and prefix routing (see README.md)
@@ -69,6 +76,8 @@ func main() {
 		err = cli.CompileCmd(ctx, os.Args[2:])
 	case "upload":
 		err = cli.UploadCmd(ctx, os.Args[2:])
+	case "serve":
+		err = cli.ServeCmd(ctx, os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stdout, helpText)
 	default:

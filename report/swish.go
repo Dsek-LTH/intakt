@@ -15,7 +15,7 @@ import (
 
 // Column layout of the Swish CSV export (see the bank's "Transaktionsrapport").
 const (
-	swishColTransDate = 3  // Transdag
+	swishColTransDate = 4  // Transdag (column 3 is Bokfdag)
 	swishColMessage   = 10 // Meddelande
 	swishColAmount    = 12 // Belopp
 	swishMinColumns   = 13
@@ -36,7 +36,11 @@ func parseSwishRecord(record []string, start, end time.Time) (swishPayment, bool
 		return swishPayment{}, false
 	}
 	date := strings.TrimSpace(record[swishColTransDate])
-	t, err := time.Parse("2006-01-02", date)
+	// Read in Location, because that is where the range boundaries come from
+	// too (see ParseDay). Parsed as UTC while the caller's `end` was Swedish
+	// midnight, the two sat two hours apart and the last day of every range
+	// was silently dropped — a term's final Friday, every time.
+	t, err := time.ParseInLocation("2006-01-02", date, Location)
 	if err != nil || t.Before(start) || t.After(end) {
 		return swishPayment{}, false
 	}

@@ -94,7 +94,13 @@ func ReportRequest(cfg *config.Config, r *report.Report, paymentMethod, clearing
 
 	return fortnox.VoucherCreateRequest{
 		Voucher: fortnox.VoucherCreate{
-			Description:     "IR " + paymentMethod + " - " + cfg.Committees[r.UtskottPrefix].Description,
+			// No series prefix: this goes into VoucherSeries below, which
+			// already says what it is, and the description has only ~30
+			// characters for the committee's name to fit in. utlagg writes the
+			// same text from incomeVoucherDescription and folds a leading "IR"
+			// away when it compares, so vouchers uploaded either way and in
+			// either wording still match its duplicate check.
+			Description:     paymentMethod + " - " + cfg.Committees[r.UtskottPrefix].Description,
 			TransactionDate: r.Date,
 			VoucherRows:     rows,
 			VoucherSeries:   cfg.Fortnox.VoucherSeries,

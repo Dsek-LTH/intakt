@@ -1,0 +1,110 @@
+out_path:
+  reports: output/reports
+  vouchers: output/vouchers
+attestation:
+  name: Test Testsson
+  stil_id: te0000st-s
+account_descriptions:
+  '3000': Försäljning inom Sverige
+  '3010': Livsmedelsförsäljning
+  '3011': Öl
+  '3012': Övrig jäst dryck
+  '3013': Vin
+  '3014': Spritdryck
+  '3015': Biljettförsäljning
+  '3020': Donation
+  '6570': Bankkostnader
+swish_amount_fallbacks:
+  1300: c-Cola
+  2000: c-Kaffe
+  2200: c-Monster
+  2300: c-Monster
+prefix_mappings:
+  a:
+    name: aktu
+    account: 3000
+  c:
+    name: cafe
+    account: 3000
+  c1:
+    name: cafe
+    account: 3020
+  d:
+    name: dshop
+    account: 3000
+  m:
+    name: medalj
+    account: 3000
+  n:
+    name: noll
+    account: 3000
+  r:
+    name: cafe
+    account: 3000
+  sk:
+    name: skatt
+    account: 3000
+  s0:
+    name: sex
+    account: 3000
+  s1:
+    name: sex
+    account: 3011
+  s2:
+    name: sex
+    account: 3012
+  s3:
+    name: sex
+    account: 3013
+  s4:
+    name: sex
+    account: 3014
+  s5:
+    name: sex
+    account: 3010
+  s6:
+    name: sex
+    account: 3015
+  s7:
+    name: sex
+    account: 3000
+  u:
+    name: uted
+    account: 3015
+  z:
+    name: skatt
+    account: 6570
+committees:
+  aktu:
+    proper_name: Aktivitetsutskottet
+    description: Aktivitetsutskottets verksamhet
+  uted:
+    proper_name: Utedischot
+    description: Utedischots verksamhet
+  cafe:
+    proper_name: Cafémästeriet
+    description: Cafémästeriets verksamhet
+    default_cost_center: CAFE02
+  dshop:
+    proper_name: D-shopen
+    description: D-shopens verksamhet
+    default_cost_center: INFU03
+  medalj:
+    proper_name: Medaljelelekommitén
+    description: Medaljelelekommiténs verksamhet
+    default_cost_center: MED01
+  noll:
+    proper_name: Nollningsutskottet
+    description: Nollningsutskottets verksamhet
+  skatt:
+    proper_name: Skattmästeriet
+    description: Bank-, Zettle- eller Swish-kostnader / okända utskott
+    default_cost_center: SKT02
+  sex:
+    proper_name: Sexmästeriet
+    description: Sexmästeriets verksamhet
+    default_cost_center: SEX02
+fortnox:
+  zettle_account: '1919'
+  swish_account: '1933'
+  voucher_series: IR

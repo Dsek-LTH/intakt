@@ -1,0 +1,18 @@
+# Everything the image has no use for. The build needs go.mod, the sources and
+# assets/ — nothing else belongs in the context, least of all the secrets and
+# the section's own data.
+.git
+.gitignore
+.env
+config.yaml
+pending.yaml
+output
+*.csv
+intakt
+Dockerfile
+.dockerignore
+README.md
+
+# Test fixtures. The runtime image runs no tests, and the anonymised Swish
+# export is a couple of hundred kilobytes of context for nothing.
+report/testdata
