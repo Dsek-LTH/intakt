@@ -4,6 +4,7 @@ output/*
 config.yaml
 intakt
 *.csv
+sig.png
 
 # A leftover of the manifest the old CLI hand-edited. Nothing writes it any
 # more — upstream keeps pending vouchers under out_path.vouchers — but a copy
